@@ -1,0 +1,33 @@
+# ===== 依赖与运行时：体积大、可随时重新获取，不进版本库 =====
+node_modules/
+.nodejs/
+
+# ===== 构建产物：每次打包都会重新生成 =====
+release/
+dist/
+out/
+build/
+
+# ===== 可执行文件与压缩包：走 GitHub Releases 分发，不放仓库 =====
+*.exe
+*.msi
+*.zip
+*.7z
+*.rar
+
+# ===== 运行时产物与本机配置（可能含个人 API Key，务必忽略） =====
+*.log
+__pycache__/
+*.py[cod]
+.env
+config.json
+
+# ===== 对外验证时收集的测试者机器信息（含他人系统细节），不公开 =====
+SystemInfo.txt
+
+# ===== 编辑器 / 系统文件 =====
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+*.tmp

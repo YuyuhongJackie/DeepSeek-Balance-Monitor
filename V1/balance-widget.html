@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepSeek 余额监控 · 界面原型</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-user-select:none; user-select:none; }
+  html, body { height:100%; }
+
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: radial-gradient(1100px 760px at 22% 8%, #1c2444 0%, #0d1226 46%, #070a18 100%);
+    overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+    color:#eaf0ff;
+  }
+
+  /* 背景光斑，衬托玻璃卡片 */
+  .blob { position:fixed; border-radius:50%; filter:blur(90px); opacity:.5; pointer-events:none; }
+  .blob.b1 { width:430px; height:430px; background:#3b4fd8; top:-130px; left:-90px; }
+  .blob.b2 { width:390px; height:390px; background:#0e7fb8; bottom:-150px; right:-70px; opacity:.35; }
+
+  .hint {
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+    font-size:12px; color:rgba(234,240,255,.35); letter-spacing:.5px; white-space:nowrap;
+  }
+
+  /* 静态截图模式：禁用所有动画/过渡，保证无头截图结果稳定 */
+  .no-anim, .no-anim * { transition:none !important; animation:none !important; }
+
+  /* 桌面应用模式（pywebview）：隐藏预览提示、禁用高开销效果、窗口用原生拖拽区域 */
+  body.app .hint { display:none; }
+  body.app .blob { display:none; }
+  body.app .logo-dot { animation:none; }
+
+  body.app .card {
+    -webkit-app-region: drag;
+    backdrop-filter:none; -webkit-backdrop-filter:none;
+    background:linear-gradient(160deg, rgba(42,50,92,.97), rgba(24,30,58,.97));
+    width:100%; height:100%;        /* 填满整个窗口，避免四角露出背景 */
+    border-radius:0;
+    display:flex; flex-direction:column;
+  }
+  body.app .card .ring-wrap { flex:0 0 auto; }
+  body.app .card .footer { margin-top:auto; }
+  body.app .card button,
+  body.app .card input,
+  body.app #acctChip,
+  body.app .menu,
+  body.app .overlay { -webkit-app-region: no-drag; }
+
+  input, textarea { user-select:text; -webkit-user-select:text; }
+
+  /* ===== 卡片 ===== */
+  .card {
+    width:400px;
+    background: linear-gradient(160deg, rgba(255,255,255,.10), rgba(255,255,255,.045));
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:28px;
+    padding:18px 22px 16px;
+    backdrop-filter: blur(26px) saturate(1.4);
+    -webkit-backdrop-filter: blur(26px) saturate(1.4);
+    box-shadow: 0 24px 60px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.12);
+    cursor:grab;
+    transition: box-shadow .5s, border-color .5s;
+    position:relative;
+    will-change: transform;
+  }
+  .card.dragging { cursor:grabbing; }
+
+  /* 余额不足：红色预警氛围 */
+  .card.alert {
+    border-color: rgba(255,94,94,.45);
+    box-shadow: 0 24px 60px rgba(0,0,0,.45), 0 0 44px rgba(255,80,80,.22), inset 0 1px 0 rgba(255,255,255,.10);
+  }
+
+  /* ===== 顶部 ===== */
+  .header { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .logo { display:flex; align-items:center; gap:9px; font-size:13px; font-weight:600; letter-spacing:.4px; color:#dfe7ff; flex:1; min-width:0; }
+  .logo-dot {
+    width:10px; height:10px; border-radius:50%;
+    background:linear-gradient(135deg,#4d6bfe,#35e0ff);
+    box-shadow:0 0 10px rgba(77,107,254,.9);
+    animation:pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{ transform:scale(1); opacity:1; } 50%{ transform:scale(1.25); opacity:.75; } }
+
+  .status {
+    display:flex; align-items:center; gap:6px;
+    font-size:11px; color:rgba(234,240,255,.85);
+    padding:4px 10px; border-radius:999px;
+    background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.10);
+  }
+  .status-dot {
+    width:7px; height:7px; border-radius:50%;
+    background:#37e28a; box-shadow:0 0 8px rgba(55,226,138,.9);
+  }
+  .card.alert .status-dot { background:#ff5e5e; box-shadow:0 0 8px rgba(255,94,94,.9); }
+  .card.offline .status-dot { background:#8b93a7; box-shadow:0 0 8px rgba(139,147,167,.8); }
+
+  /* 窗口控制按钮（仅桌面版显示） */
+  .win-controls { display:none; gap:6px; align-items:center; flex:none; }
+  body.app .win-controls { display:flex; }
+  .win-btn {
+    width:24px; height:24px; border-radius:50%;
+    border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.08); color:#dfe7ff;
+    font-size:13px; line-height:1;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; transition:background .2s, transform .15s;
+  }
+  .win-btn:hover { background:rgba(255,255,255,.18); transform:scale(1.08); }
+  .win-btn.close:hover { background:rgba(255,94,94,.9); color:#fff; border-color:transparent; }
+
+
+  /* 当前账号横条 */
+  .acct-row { display:flex; justify-content:center; margin:8px 0 0; }
+  #acctChip {
+    font-size:11px; color:rgba(234,240,255,.72);
+    background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.10);
+    border-radius:999px; padding:4px 12px; cursor:pointer;
+    transition:background .25s, color .25s;
+  }
+  #acctChip:hover { background:rgba(255,255,255,.13); color:#fff; }
+
+  /* ===== 圆环 ===== */
+  .ring-wrap { position:relative; width:205px; height:205px; margin:4px auto 0; }
+  .ring-wrap svg { width:100%; height:100%; display:block; transform:rotate(-90deg); }
+
+  .ring-track { fill:none; stroke:rgba(255,255,255,.08); stroke-width:13; }
+  .ring-fg {
+    fill:none; stroke:url(#gradNormal); stroke-width:13; stroke-linecap:round;
+    stroke-dasharray:552.92; stroke-dashoffset:552.92;
+    transition: stroke-dashoffset 1s cubic-bezier(.34,1.56,.64,1), stroke .6s;
+    filter:drop-shadow(0 0 12px rgba(77,107,254,.5));
+  }
+  .card.alert .ring-fg { stroke:url(#gradAlert); filter:drop-shadow(0 0 12px rgba(255,94,94,.55)); }
+
+  .ring-center {
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+  }
+  .pct {
+    font-size:50px; font-weight:700; line-height:1; letter-spacing:-1px; color:#fff;
+    transform-origin:center;
+    transition: transform .45s cubic-bezier(.34,1.56,.64,1);
+  }
+  .pct.pop { transform:scale(1.12); }
+  .pct-label { font-size:12px; color:rgba(234,240,255,.55); letter-spacing:2px; }
+
+  /* ===== 底部 ===== */
+  .footer { display:flex; justify-content:space-between; align-items:flex-end; margin-top:2px; }
+  .amount { display:flex; align-items:baseline; gap:4px; }
+  .cny { font-size:16px; color:rgba(234,240,255,.6); font-weight:600; }
+  #amountNum {
+    font-size:26px; font-weight:700; color:#fff;
+    transform-origin:left center;
+    transition: transform .4s cubic-bezier(.34,1.56,.64,1);
+  }
+  #amountNum.pop { transform:scale(1.08); }
+  .footer-right { display:flex; align-items:center; gap:8px; }
+  #updated { font-size:11px; color:rgba(234,240,255,.45); }
+
+  .demo-badge {
+    font-size:10px; color:#ffd98a;
+    background:rgba(255,190,80,.12); border:1px solid rgba(255,190,80,.35);
+    padding:2px 8px; border-radius:999px;
+  }
+
+  /* 两次刷新间的消耗/增加 */
+  .delta-line {
+    font-size:11px; color:rgba(234,240,255,.6);
+    text-align:center; margin-top:6px; letter-spacing:.2px;
+    white-space:nowrap;
+  }
+  .delta-line.loss { color:#ffb84d; }
+  .delta-line.gain { color:#37e28a; }
+
+  .icon-btn {
+    width:30px; height:30px; border-radius:50%;
+    border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.07); color:#dfe7ff;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; transition:background .25s, transform .2s;
+    font-size:14px; line-height:1;
+  }
+  .icon-btn:hover { background:rgba(255,255,255,.14); transform:scale(1.08); }
+  .icon-btn svg { width:15px; height:15px; }
+  .icon-btn.spin svg { animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* ===== 右键菜单 ===== */
+  .menu {
+    position:fixed; z-index:99; min-width:186px;
+    background:rgba(21,27,48,.95);
+    border:1px solid rgba(255,255,255,.12);
+    border-radius:14px; padding:6px;
+    box-shadow:0 16px 40px rgba(0,0,0,.5);
+    backdrop-filter:blur(20px);
+    display:none;
+  }
+  .menu.show { display:block; animation:menuIn .16s ease; }
+  @keyframes menuIn { from { opacity:0; transform:scale(.95) translateY(-4px); } }
+  .menu-item {
+    padding:8px 12px; border-radius:9px;
+    font-size:12.5px; color:#dfe7ff; cursor:pointer;
+    display:flex; align-items:center; gap:8px;
+  }
+  .menu-item:hover { background:rgba(77,107,254,.22); }
+  .menu-item.danger:hover { background:rgba(255,94,94,.2); color:#ffb3b3; }
+  .menu-sep { height:1px; margin:5px 8px; background:rgba(255,255,255,.08); }
+  .menu-note { font-size:10.5px; color:rgba(234,240,255,.35); padding:6px 12px 4px; }
+
+  /* ===== 设置弹窗 ===== */
+  .overlay {
+    position:fixed; inset:0; z-index:100;
+    display:none; align-items:center; justify-content:center;
+    background:rgba(4,7,18,.55);
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+  }
+  .overlay.open { display:flex; }
+  .panel {
+    width:380px; max-height:88vh; overflow:auto;
+    background:linear-gradient(160deg, rgba(30,37,66,.97), rgba(18,23,44,.97));
+    border:1px solid rgba(255,255,255,.14); border-radius:22px;
+    padding:18px;
+    box-shadow:0 24px 60px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.10);
+  }
+  .panel-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+  .panel-head .title { font-size:15px; font-weight:700; }
+  .panel-section { margin-bottom:16px; }
+  .sec-title { font-size:11px; letter-spacing:1px; color:rgba(234,240,255,.5); margin-bottom:8px; }
+  .field-label { display:block; font-size:12px; color:#dfe7ff; margin-bottom:6px; }
+  .field-hint { font-size:11px; color:rgba(234,240,255,.4); margin-top:6px; line-height:1.5; }
+  .panel input[type=number], .panel input[type=text] {
+    width:100%; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.12);
+    color:#eaf0ff; border-radius:10px; padding:9px 11px; font-size:12.5px; outline:none;
+    transition:border-color .2s, background .2s;
+  }
+  .panel input:focus { border-color:rgba(77,107,254,.7); background:rgba(255,255,255,.09); }
+
+  .acct-item {
+    display:flex; align-items:center; gap:10px;
+    padding:9px 10px; border-radius:12px;
+    border:1px solid transparent; background:rgba(255,255,255,.045);
+    margin-bottom:6px; cursor:pointer;
+  }
+  .acct-item:hover { background:rgba(255,255,255,.08); }
+  .acct-item.active { border-color:rgba(77,107,254,.55); background:rgba(77,107,254,.12); }
+  .acct-radio { width:14px; height:14px; border-radius:50%; border:2px solid rgba(255,255,255,.25); flex:none; position:relative; }
+  .acct-item.active .acct-radio { border-color:#4d6bfe; }
+  .acct-item.active .acct-radio::after {
+    content:''; position:absolute; inset:2px; border-radius:50%;
+    background:linear-gradient(135deg,#4d6bfe,#35e0ff);
+  }
+  .acct-info { flex:1; min-width:0; }
+  .acct-name { font-size:12.5px; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .acct-key { font-size:10.5px; color:rgba(234,240,255,.45); font-family:Consolas,monospace; margin-top:2px; }
+  .acct-tag { font-size:10px; color:#9db4ff; background:rgba(77,107,254,.2); padding:2px 8px; border-radius:999px; flex:none; }
+  .mini-btn {
+    font-size:11px; color:#dfe7ff;
+    background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.14);
+    border-radius:8px; padding:4px 9px; cursor:pointer; flex:none;
+  }
+  .mini-btn:hover { background:rgba(255,255,255,.16); }
+  .mini-btn.del { color:#ffb3b3; border-color:rgba(255,94,94,.3); background:rgba(255,94,94,.08); }
+  .mini-btn.del:hover { background:rgba(255,94,94,.18); }
+  .acct-empty { font-size:11.5px; color:rgba(234,240,255,.4); text-align:center; padding:12px 0; }
+
+  .add-form { display:flex; flex-direction:column; gap:7px; margin-top:8px; }
+  .add-form button, .panel-foot .btn {
+    background:linear-gradient(135deg,#4d6bfe,#3f5ae8); border:none; color:#fff;
+    border-radius:10px; padding:9px; font-size:12.5px; font-weight:600; cursor:pointer;
+    transition:filter .2s, transform .15s;
+  }
+  .add-form button:hover, .panel-foot .btn:hover { filter:brightness(1.12); }
+  .panel-foot { display:flex; justify-content:flex-end; }
+  .panel-foot .btn { padding:8px 22px; }
+
+  /* ===== 提示条 ===== */
+  .toast {
+    position:fixed; bottom:64px; left:50%;
+    transform:translate(-50%,12px);
+    background:rgba(21,27,48,.96); border:1px solid rgba(255,255,255,.14);
+    color:#eaf0ff; font-size:12.5px; padding:9px 16px; border-radius:12px;
+    opacity:0; pointer-events:none; transition:opacity .25s, transform .25s;
+    box-shadow:0 10px 30px rgba(0,0,0,.45); z-index:120;
+    max-width:80vw; text-align:center;
+  }
+  .toast.show { opacity:1; transform:translate(-50%,0); }
+  .toast.err { border-color:rgba(255,94,94,.45); color:#ffc9c9; }
+  .toast.warn { border-color:rgba(255,190,80,.45); color:#ffe3b3; }
+</style>
+</head>
+<body>
+
+  <div class="blob b1"></div>
+  <div class="blob b2"></div>
+
+  <!-- ===== 卡片主体 ===== -->
+  <div class="card" id="card">
+    <div class="header">
+      <div class="logo"><span class="logo-dot"></span>DeepSeek 余额</div>
+      <div class="status"><span class="status-dot" id="statusDot"></span><span id="statusText">正常</span></div>
+      <div class="win-controls">
+
+        <button class="win-btn" id="minBtn" title="最小化到托盘">−</button>
+        <button class="win-btn close" id="closeBtn" title="退出程序">✕</button>
+      </div>
+    </div>
+
+    <div class="acct-row">
+      <button id="acctChip" title="管理账号与基准额度">○ 未登录 · 添加 API Key</button>
+    </div>
+
+    <div class="ring-wrap">
+      <svg viewBox="0 0 210 210">
+        <defs>
+          <linearGradient id="gradNormal" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#4d6bfe"/>
+            <stop offset="100%" stop-color="#35e0ff"/>
+          </linearGradient>
+          <linearGradient id="gradAlert" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#ff5e5e"/>
+            <stop offset="100%" stop-color="#ffb84d"/>
+          </linearGradient>
+        </defs>
+        <circle class="ring-track" cx="105" cy="105" r="88"></circle>
+        <circle class="ring-fg" id="ringFg" cx="105" cy="105" r="88"></circle>
+      </svg>
+      <div class="ring-center">
+        <div class="pct" id="pctNum">0.0</div>
+        <div class="pct-label">% 剩余额度</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div class="amount"><span class="cny" id="cny">¥</span><span id="amountNum">0.00</span></div>
+      <div class="footer-right">
+        <span class="demo-badge" id="demoBadge" hidden>演示数据</span>
+        <span id="updated">上次更新 --:--</span>
+        <button class="icon-btn" id="settingsBtn" title="设置（账号 / 基准额度）">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+        <button class="icon-btn" id="refreshBtn" title="立即刷新">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
+            <path d="M21 3v6h-6"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="delta-line" id="deltaLine" hidden></div>
+  </div>
+
+  <!-- ===== 右键菜单 ===== -->
+  <div class="menu" id="menu">
+    <div class="menu-item" data-action="refresh">⟳ 立即刷新</div>
+    <div class="menu-item" data-action="settings">⚙ 打开设置</div>
+    <div class="menu-sep"></div>
+    <div class="menu-item" data-action="alert">⚠ 模拟余额不足（演示）</div>
+    <div class="menu-item" data-action="restore">↺ 恢复演示数据</div>
+    <div class="menu-sep"></div>
+    <div class="menu-item" data-action="ontop">📌 置顶窗口（演示）</div>
+    <div class="menu-item danger" data-action="close">✕ 退出</div>
+    <div class="menu-note">原型演示 · 浏览器预览受跨域限制</div>
+  </div>
+
+  <!-- ===== 设置弹窗 ===== -->
+  <div class="overlay" id="overlay">
+    <div class="panel">
+      <div class="panel-head">
+        <span class="title">设置</span>
+        <button class="icon-btn" id="closeSettings" title="关闭">✕</button>
+      </div>
+
+      <div class="panel-section">
+        <div class="sec-title">显示设置</div>
+        <label class="field-label">满格余额（100%）对应金额（¥）</label>
+        <input type="number" id="refInput" min="0.01" step="0.01" placeholder="例如 100">
+        <div class="field-hint">余额达到这个金额时，圆环刚好转满一圈。百分比 = 当前余额 ÷ 满格金额</div>
+      </div>
+
+      <div class="panel-section">
+        <div class="sec-title">账号（API Key）</div>
+        <div id="accountList"></div>
+        <div class="add-form">
+          <input type="text" id="keyInput" placeholder="粘贴 API Key（sk- 开头）">
+          <input type="text" id="nameInput" placeholder="备注名，如：工作号（可留空）">
+          <button id="addBtn">添加并切换</button>
+        </div>
+        <div class="field-hint">Key 只保存在本机。多个账号可随时一键切换。</div>
+      </div>
+
+      <div class="panel-foot">
+        <button class="btn" id="closeBtn2">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <div class="hint">拖动卡片移动位置 · 双击复位 · 右键菜单 · 点账号名或齿轮进入设置</div>
+
+<script>
+  (function(){
+    "use strict";
+
+    /* ---------- 本地存储键 ---------- */
+    const LS_ACCOUNTS = 'ds_accounts_v1';
+    const LS_ACTIVE   = 'ds_active_v1';
+    const LS_REF      = 'ds_ref_v1';
+    const C = 2 * Math.PI * 88;   // 圆环周长
+
+    const $ = id => document.getElementById(id);
+    const card = $('card'), pctNum = $('pctNum'), amountNum = $('amountNum'),
+          ringFg = $('ringFg'), cnyEl = $('cny'), updated = $('updated'),
+          statusText = $('statusText'), refreshBtn = $('refreshBtn'),
+          settingsBtn = $('settingsBtn'), minBtn = $('minBtn'), closeBtn = $('closeBtn'),
+          acctChip = $('acctChip'),
+          demoBadge = $('demoBadge'), menu = $('menu'), toastEl = $('toast'),
+          overlay = $('overlay'), closeSettingsBtn = $('closeSettings'),
+          refInput = $('refInput'), deltaLine = $('deltaLine'),
+          accountList = $('accountList'), keyInput = $('keyInput'),
+          nameInput = $('nameInput'), addBtn = $('addBtn');
+
+    const state = {
+      accounts: [],
+      baselines: {},   // 账号ID -> 上次成功刷新的余额（计算两次刷新间消耗）
+      activeId: null,
+      reference: 100,   // 用户自定义的"满格（100%）"金额
+      threshold: 10,    // 低于此余额触发预警（后续可做成可配置）
+      balance: 0,
+      currency: 'CNY',
+      demo: true,
+      refreshing: false
+    };
+
+    let toastTimer = null;
+
+    function jslog(msg) {
+      try {
+        if (window.pywebview && window.pywebview.api && window.pywebview.api.log) {
+          window.pywebview.api.log(msg);
+        }
+      } catch(e) {}
+    }
+
+    // 页面完成启动后通知 Python（看门狗据此判断启动成功）
+    function signalReady() {
+      try {
+        if (appMode && window.pywebview && window.pywebview.api && window.pywebview.api.ready) {
+          window.pywebview.api.ready();
+        }
+      } catch(e) {}
+    }
+
+
+    // 桌面应用模式：pywebview 环境下启用桥接；#app 哈希用于打包版，浏览器预览（?app=1）只换样式
+    let appMode = typeof window.pywebview !== 'undefined' || location.hash === '#app' || /[?&]app=1/.test(location.search);
+    function markAppMode() {
+      appMode = true;
+      document.body.classList.add('app');
+    }
+    if (appMode) markAppMode();
+    jslog('script start, appMode=' + appMode);
+
+    function waitBridge(timeout) {
+      return new Promise(resolve => {
+        if (window.pywebview && window.pywebview.api) return resolve(true);
+        const t = setTimeout(() => { clearInterval(iv); resolve(false); }, timeout || 3000);
+        const iv = setInterval(() => {
+          // 注意：window.pywebview 基础对象先注入，api 方法后注入，必须等两者都就绪
+          if (window.pywebview && window.pywebview.api) { clearInterval(iv); clearTimeout(t); resolve(true); }
+        }, 50);
+      });
+    }
+
+    const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+    const activeAccount = () => state.accounts.find(a => a.id === state.activeId) || null;
+
+    function maskKey(k) {
+      if (k.length > 10) return k.slice(0,3) + '…' + k.slice(-4);
+      if (k.length > 6)  return k.slice(0,2) + '…' + k.slice(-2);
+      return '****';
+    }
+    function uid() { return 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function nowText() {
+      return new Date().toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' });
+    }
+
+    /* ---------- 持久化：桌面版走 Python 配置文件，浏览器版走 localStorage ---------- */
+    async function load() {
+      jslog('load enter, appMode=' + appMode + ', bridge=' + (!!window.pywebview));
+      if (appMode) {
+        const ready = await waitBridge(30000);
+        jslog('load bridge ready=' + ready);
+        if (!ready) {
+          // 桥接长时间未就绪：退回到 localStorage（浏览器预览场景）
+          try { state.accounts = JSON.parse(localStorage.getItem(LS_ACCOUNTS) || '[]'); } catch(e) { state.accounts = []; }
+          state.activeId = localStorage.getItem(LS_ACTIVE) || null;
+          const r = parseFloat(localStorage.getItem(LS_REF));
+          state.reference = (r && r > 0) ? r : 100;
+        } else {
+          try {
+            const cfg = await window.pywebview.api.get_config();
+            state.accounts = Array.isArray(cfg.accounts) ? cfg.accounts : [];
+            state.activeId = cfg.activeId || null;
+            const r = parseFloat(cfg.reference);
+            state.reference = (r && r > 0) ? r : 100;
+            if (cfg.baselines && typeof cfg.baselines === 'object') {
+              state.baselines = cfg.baselines;
+            }
+          } catch(e) {
+            state.accounts = []; state.activeId = null; state.reference = 100;
+          }
+        }
+      } else {
+        try { state.accounts = JSON.parse(localStorage.getItem(LS_ACCOUNTS) || '[]'); } catch(e) { state.accounts = []; }
+        state.activeId = localStorage.getItem(LS_ACTIVE) || null;
+        const r = parseFloat(localStorage.getItem(LS_REF));
+        state.reference = (r && r > 0) ? r : 100;
+      }
+      if (!Array.isArray(state.accounts)) state.accounts = [];
+      if (state.activeId && !state.accounts.some(a => a.id === state.activeId)) state.activeId = null;
+      if (!state.accounts.length) state.activeId = null;
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.log) {
+        window.pywebview.api.log('load done, accounts=' + state.accounts.length + ', active=' + (state.activeId || 'null') + ', ref=' + state.reference);
+      }
+    }
+
+    // 兜底：启动时若桥接未就绪导致没读到账号，桥接就绪后自动补读一次
+    function startBridgeWatch() {
+      let watching = true;
+      const iv = setInterval(() => {
+        if (!watching) return;
+        if (window.pywebview && window.pywebview.api) {
+          watching = false;
+          clearInterval(iv);
+          jslog('bridge watch: bridge ready');
+          if (!state.accounts.length) {
+            load().then(() => {
+              updateChip();
+              if (activeAccount()) refresh();
+              signalReady();
+            }).catch(() => {});
+          }
+        }
+      }, 800);
+    }
+    function save() {
+      const cfg = { accounts: state.accounts, activeId: state.activeId, reference: state.reference, baselines: state.baselines };
+      if (appMode && window.pywebview) {
+        window.pywebview.api.save_config(cfg).catch(() => {});
+      } else {
+        localStorage.setItem(LS_ACCOUNTS, JSON.stringify(state.accounts));
+        localStorage.setItem(LS_ACTIVE, state.activeId || '');
+        localStorage.setItem(LS_REF, String(state.reference));
+      }
+    }
+
+    /* ---------- 显示更新 ---------- */
+    function countUp(from, to, dur, el, fmt) {
+      // 每个元素独立动画 ID，避免两个数字动画互相取消
+      if (el._animId) cancelAnimationFrame(el._animId);
+      const t0 = performance.now();
+      const step = t => {
+        const p = clamp((t - t0) / dur, 0, 1);
+        const eased = 1 - Math.pow(2, -10 * p);
+        el.textContent = fmt(from + (to - from) * (p === 1 ? 1 : eased));
+        if (p < 1) el._animId = requestAnimationFrame(step);
+        else el._animId = 0;
+      };
+      el._animId = requestAnimationFrame(step);
+    }
+    function pop(el) {
+      el.classList.add('pop');
+      requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove('pop')));
+    }
+
+    function updateStatus() {
+      const a = activeAccount();
+      const alert = state.balance < state.threshold;
+      card.classList.toggle('alert', alert);
+      card.classList.toggle('offline', !a);
+      statusText.textContent = alert ? '余额偏低' : (a ? '正常' : '未连接');
+    }
+
+    function updateChip() {
+      const a = activeAccount();
+      acctChip.textContent = a ? ('◉ ' + a.name + ' · 点击管理') : '○ 未登录 · 添加 API Key';
+    }
+
+    function setBalance(value, { animate = true, currency } = {}) {
+      if (currency) state.currency = currency;
+      state.balance = clamp(value, 0, 999999);
+      const pct = clamp(state.balance / state.reference * 100, 0, 100);
+
+      if (animate) {
+        countUp(parseFloat(pctNum.textContent) || 0, pct, 900, pctNum, v => v.toFixed(1));
+        countUp(parseFloat(amountNum.textContent.replace(/,/g,'')) || 0, state.balance, 900, amountNum,
+          v => v.toLocaleString('zh-CN', { minimumFractionDigits:2, maximumFractionDigits:2 }));
+      } else {
+        pctNum.textContent = pct.toFixed(1);
+        amountNum.textContent = state.balance.toLocaleString('zh-CN', { minimumFractionDigits:2, maximumFractionDigits:2 });
+      }
+
+      cnyEl.textContent = state.currency === 'CNY' ? '¥' : (state.currency === 'USD' ? '$' : state.currency + ' ');
+      ringFg.style.strokeDashoffset = C * (1 - pct / 100);
+      pop(pctNum); pop(amountNum);
+      updateStatus();
+    }
+
+    /* ---------- 刷新与真实接口 ---------- */
+    function finishRefresh() {
+      state.refreshing = false;
+      refreshBtn.classList.remove('spin');
+    }
+
+    function demo(notify, msg) {
+      state.demo = true;
+      demoBadge.hidden = false;
+      setBalance(20 + Math.random() * 25);   // 演示：20 ~ 45 元
+      updated.textContent = '上次更新 ' + nowText();
+      finishRefresh();
+      if (notify) toast(msg || '使用演示数据', 'warn');
+    }
+
+    function fmtMoney(v) {
+      return v.toLocaleString('zh-CN', { minimumFractionDigits:2, maximumFractionDigits:2 });
+    }
+
+    // 显示两次刷新间的余额变化：diff = 上次 - 本次（>0 消耗，<0 充值增加）
+    function showDelta(prev, curr) {
+      const diff = prev - curr;
+      const abs = Math.abs(diff);
+      const pct = state.reference > 0 ? (abs / state.reference * 100) : 0;
+      const isLoss = diff > 0;
+      deltaLine.classList.toggle('loss', isLoss);
+      deltaLine.classList.toggle('gain', !isLoss);
+      const symbol = (cnyEl.textContent || '¥').trim();
+      deltaLine.textContent = (isLoss ? '较上次刷新 消耗 ' : '较上次刷新 增加 ')
+        + symbol + fmtMoney(abs)
+        + '（占满格 ' + pct.toFixed(1) + '%）';
+      deltaLine.hidden = false;
+    }
+
+    function hideDelta() {
+      deltaLine.hidden = true;
+    }
+
+    async function fetchBalance(key) {
+      // DeepSeek 官方余额接口：GET https://api.deepseek.com/user/balance
+      const resp = await fetch('https://api.deepseek.com/user/balance', {
+        headers: { 'Accept': 'application/json', 'Authorization': 'Bearer ' + key.trim() }
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const data = await resp.json();
+      if (!data || !Array.isArray(data.balance_infos) || !data.balance_infos.length) {
+        throw new Error('响应格式异常');
+      }
+      const info = data.balance_infos.find(b => b.currency === 'CNY') || data.balance_infos[0];
+      const amount = parseFloat(info.total_balance);
+      if (isNaN(amount)) throw new Error('余额字段缺失');
+      return { amount, currency: info.currency };
+    }
+
+    // 桌面版优先走 Python 桥接（无跨域问题），浏览器版退回 fetch
+    function fetchBalanceRemote(key) {
+      if (appMode && window.pywebview) {
+        return window.pywebview.api.get_balance(key)
+          .then(r => ({ amount: r.amount, currency: r.currency }));
+      }
+      return fetchBalance(key);
+    }
+
+    function errMsg(e) {
+      const s = String((e && e.message) || e);
+      if (/fetch|network|failed to fetch|cors/i.test(s)) return '网络请求失败：请检查网络或 Key 是否正确';
+      if (/401/.test(s)) return 'API Key 无效（401），请检查后重试';
+      if (/403/.test(s)) return '该 Key 无权访问（403）';
+      return '接口请求失败：' + s;
+    }
+
+    function refresh() {
+      if (state.refreshing) return;
+      state.refreshing = true;
+      refreshBtn.classList.add('spin');
+      statusText.textContent = '刷新中';
+
+      const a = activeAccount();
+      if (!a) {
+        setTimeout(() => demo(true, '未配置 API Key，已载入演示数据'), 400);
+        return;
+      }
+
+      fetchBalanceRemote(a.key)
+        .then(r => {
+          state.demo = false;
+          demoBadge.hidden = true;
+          const prev = state.baselines[a.id];
+          setBalance(r.amount, { currency: r.currency });
+          if (typeof prev === 'number' && isFinite(prev)) {
+            showDelta(prev, r.amount);
+          } else {
+            hideDelta();
+          }
+          state.baselines[a.id] = r.amount;
+          save();
+          updated.textContent = '上次更新 ' + nowText();
+          toast('余额已更新（' + a.name + '）');
+        })
+        .catch(err => {
+          demo(true, errMsg(err));
+        })
+        .finally(() => finishRefresh());
+    }
+
+    /* ---------- 设置弹窗：账号管理 ---------- */
+    function renderAccounts() {
+      accountList.innerHTML = '';
+      if (!state.accounts.length) {
+        accountList.innerHTML = '<div class="acct-empty">还没有账号，在下面粘贴你的 API Key 添加</div>';
+        return;
+      }
+      state.accounts.forEach(a => {
+        const active = a.id === state.activeId;
+        const row = document.createElement('div');
+        row.className = 'acct-item' + (active ? ' active' : '');
+        row.innerHTML =
+          '<span class="acct-radio"></span>' +
+          '<div class="acct-info">' +
+            '<div class="acct-name">' + esc(a.name) + '</div>' +
+            '<div class="acct-key">' + esc(maskKey(a.key)) + '</div>' +
+          '</div>' +
+          (active
+            ? '<span class="acct-tag">当前</span>'
+            : '<button class="mini-btn">切换</button>') +
+          '<button class="mini-btn del">删除</button>';
+        const switchBtn = row.querySelector('.mini-btn:not(.del)');
+        if (switchBtn) switchBtn.addEventListener('click', e => { e.stopPropagation(); switchAccount(a.id); });
+        row.querySelector('.del').addEventListener('click', e => { e.stopPropagation(); removeAccount(a.id); });
+        row.addEventListener('click', () => switchAccount(a.id));
+        accountList.appendChild(row);
+      });
+    }
+
+    function addAccount() {
+      const key = keyInput.value.trim();
+      const name = nameInput.value.trim();
+      if (!key) { toast('请先粘贴 API Key', 'err'); return; }
+      if (!/^sk-/i.test(key)) toast('提示：DeepSeek 的 Key 通常以 sk- 开头', 'warn');
+      const account = { id: uid(), name: name || ('账号 ' + (state.accounts.length + 1)), key: key };
+      state.accounts.push(account);
+      state.activeId = account.id;
+      save();
+      renderAccounts();
+      updateChip();
+      keyInput.value = ''; nameInput.value = '';
+      toast('已添加并切换到：' + account.name);
+      refresh();
+    }
+
+    function switchAccount(id) {
+      if (!state.accounts.some(a => a.id === id)) return;
+      state.activeId = id;
+      save();
+      renderAccounts();
+      updateChip();
+      const a = activeAccount();
+      toast('已切换到：' + a.name);
+      hideDelta();
+      refresh();
+    }
+
+    function removeAccount(id) {
+      const acc = state.accounts.find(a => a.id === id);
+      if (!acc) return;
+      state.accounts = state.accounts.filter(a => a.id !== id);
+      delete state.baselines[id];
+      if (state.activeId === id) state.activeId = state.accounts[0] ? state.accounts[0].id : null;
+      save();
+      renderAccounts();
+      updateChip();
+      toast('已删除：' + acc.name, 'warn');
+      refresh();
+    }
+
+    function openSettings() {
+      refInput.value = state.reference;
+      renderAccounts();
+      overlay.classList.add('open');
+    }
+    function closeSettings() { overlay.classList.remove('open'); }
+
+    /* ---------- 提示条 ---------- */
+    function toast(msg, type) {
+      toastEl.textContent = msg;
+      toastEl.className = 'toast show ' + (type || '');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toastEl.classList.remove('show'), 3200);
+    }
+
+    /* ---------- 事件绑定 ---------- */
+    // 右键菜单
+    card.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      menu.style.left = clamp(e.clientX, 8, innerWidth - menu.offsetWidth - 8) + 'px';
+      menu.style.top  = clamp(e.clientY, 8, innerHeight - menu.offsetHeight - 8) + 'px';
+      menu.classList.add('show');
+    });
+    document.addEventListener('click', () => menu.classList.remove('show'));
+    document.addEventListener('contextmenu', e => { if (!card.contains(e.target)) menu.classList.remove('show'); });
+
+    menu.addEventListener('click', e => {
+      const item = e.target.closest('.menu-item');
+      if (!item) return;
+      menu.classList.remove('show');
+      switch (item.dataset.action) {
+        case 'refresh':  refresh(); break;
+        case 'settings': openSettings(); break;
+        case 'alert':    state.demo = true; demoBadge.hidden = false; setBalance(4.2); break;
+        case 'restore':  state.demo = true; demoBadge.hidden = false; setBalance(32.5); break;
+        case 'ontop':    handleOnTop(item); break;
+        case 'close':    handleClose(); break;
+      }
+    });
+
+    async function handleOnTop(item) {
+      if (appMode && window.pywebview) {
+        try {
+          const on = await window.pywebview.api.toggle_top();
+          item.textContent = on ? '📌 已置顶' : '📌 未置顶';
+        } catch(e) { /* ignore */ }
+      } else {
+        item.textContent = '✓ 已置顶（演示）';
+      }
+    }
+    function handleClose() {
+      if (appMode && window.pywebview) { window.pywebview.api.exit(); return; }
+      document.body.style.opacity = 0;
+      setTimeout(() => window.close(), 300);
+    }
+
+    // 拖动
+    let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
+    card.addEventListener('pointerdown', e => {
+      if (appMode) return;   // 桌面版用 CSS app-region 拖动窗口，不做页面内位移
+      if (e.button !== 0 || e.target.closest('.icon-btn') || e.target.closest('#acctChip')) return;
+      dragging = true;
+      card.setPointerCapture(e.pointerId);
+      card.classList.add('dragging');
+      sx = e.clientX; sy = e.clientY;
+      const m = /translate3d\(([-\d.]+)px,\s*([-\d.]+)px,\s*0px\)/.exec(card.style.transform);
+      ox = m ? parseFloat(m[1]) : 0;
+      oy = m ? parseFloat(m[2]) : 0;
+    });
+    card.addEventListener('pointermove', e => {
+      if (!dragging) return;
+      card.style.transform = `translate3d(${ox + e.clientX - sx}px, ${oy + e.clientY - sy}px, 0)`;
+    });
+    card.addEventListener('pointerup', () => { dragging = false; card.classList.remove('dragging'); });
+    card.addEventListener('dblclick', () => { card.style.transform = ''; });
+
+    refreshBtn.addEventListener('click', refresh);
+    settingsBtn.addEventListener('click', openSettings);
+    acctChip.addEventListener('click', openSettings);
+
+    minBtn.addEventListener('click', () => {
+      if (appMode && window.pywebview) window.pywebview.api.minimize();
+    });
+    closeBtn.addEventListener('click', () => {
+      if (appMode && window.pywebview) window.pywebview.api.exit();
+      else handleClose();
+    });
+    closeSettingsBtn.addEventListener('click', closeSettings);
+    closeBtn2.addEventListener('click', closeSettings);
+    overlay.addEventListener('click', e => { if (e.target === overlay) closeSettings(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSettings(); });
+    document.addEventListener('contextmenu', e => { if (appMode) e.preventDefault(); });
+
+    addBtn.addEventListener('click', addAccount);
+    keyInput.addEventListener('keydown', e => { if (e.key === 'Enter') addAccount(); });
+
+    refInput.addEventListener('input', () => {
+      const v = parseFloat(refInput.value);
+      if (v && v > 0) {
+        state.reference = v;
+        save();
+        if (state.balance > 0) setBalance(state.balance, { animate: false });
+      }
+    });
+
+    /* ---------- 启动 ---------- */
+    const shotMode = /[?&]shot=1/.test(location.search);
+    const isAlertDemo = location.hash === '#alert';
+
+    (async function boot() {
+      if (location.hash === '#app' || /[?&]app=1/.test(location.search)) markAppMode();
+      jslog('boot start');
+      if (shotMode) {
+        document.documentElement.classList.add('no-anim');
+        // 截图专用：预置两个演示账号，展示账号管理界面
+        state.accounts = [
+          { id:'a1', name:'演示账号 A', key:'sk-demo1111111111' },
+          { id:'a2', name:'备用账号 B', key:'sk-demo2222222222' }
+        ];
+        state.activeId = 'a1';
+        state.reference = 100;
+        state.demo = true;
+        demoBadge.hidden = false;
+        updateChip();
+        if (location.hash === '#settings') openSettings();
+        setBalance(isAlertDemo ? 4.2 : 32.5, { animate:false });
+        updated.textContent = '上次更新 ' + nowText();
+      } else {
+        statusText.textContent = '加载中';
+        await load();
+        updateChip();
+        updated.textContent = '上次更新 ' + nowText();
+        if (activeAccount()) refresh();
+        else demo(true, '未配置 API Key，已载入演示数据');
+        signalReady();
+        if (appMode) startBridgeWatch();
+      }
+    })();
+  })();
+</script>
+</body>
+</html>
