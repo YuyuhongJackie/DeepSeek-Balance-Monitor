@@ -1,0 +1,36 @@
+{
+  "name": "deepseek-balance-monitor",
+  "productName": "DeepSeek余额监控",
+  "version": "2.2.0",
+  "description": "DeepSeek 余额监控（Electron 版）",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.deepseek.balancemonitor",
+    "productName": "DeepSeek余额监控",
+    "directories": { "output": "release" },
+    "files": [
+      "main.js",
+      "preload.js",
+      "ui/**",
+      "app_icon.ico",
+      "tray_icon.png",
+      "package.json"
+    ],
+    "win": {
+      "executableName": "DeepSeekBalanceMonitor",
+      "icon": "app_icon.ico",
+      "target": [{ "target": "portable", "arch": ["x64"] }],
+      "artifactName": "DeepSeekBalanceMonitor-${version}-portable.${ext}",
+      "signAndEditExecutable": false
+    }
+  }
+}
